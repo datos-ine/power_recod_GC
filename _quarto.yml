@@ -1,0 +1,26 @@
+project:
+  title: "Mortalidad por *codigos basura* en Argentina (2010–2023): redistribución hacia causas específicas"
+
+format: 
+  revealjs:
+    author: 
+      - name: Tamara Ricardo
+        orcid: 0000-0002-0921-2611
+      - name: Juan I. Irassar
+        orcid: 0000-0003-2215-6682
+      - name: M. Fernanda Aguirre
+        orcid: 0000-0002-3979-865X
+      - name: M. Jimena Marro
+        orcid: 0000-0002-9483-2304
+    logo: images/logos_ine.svg
+    footer: Instituto Nacional de Epidemiología "Dr. Juan H. Jara"
+    slide-number: true
+    incremental: true
+    center: false
+    theme: simple
+    css: custom.css
+
+execute: 
+  dir: project
+
+

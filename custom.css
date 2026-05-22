@@ -1,0 +1,25 @@
+/* Título nivel 1*/
+.reveal h1 {
+  font-size: 1.8em;
+  color: #3f4c6b !important;
+}
+
+/* Títulos nivel 2 */
+.reveal h2 {
+  font-size: 1.5em;
+  color: white;
+  background-color: #3f4c6b !important;
+  /* border-radius: 10px; */
+  padding: 10px;
+}
+
+/* Subtítulos */
+.reveal h3,
+.reveal h4 {
+  color: #3f4c6b !important;
+}
+
+/* Color de texto normal */
+.reveal {
+  color: darkslategrey;
+}

@@ -1,0 +1,1121 @@
+---
+title: "Mortalidad por *codigos basura* en Argentina (2010–2023): redistribución hacia causas específicas"
+bibliography: references.bib
+---
+
+```{r}
+#| id: Configuración global
+# echo: false
+#| message: false
+#| warning: false
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warnings = FALSE,
+  fig.align = "center",
+  out.width = "100%",
+  fig.width = 12,
+  fig.height = 6,
+  dpi = 300
+)
+```
+
+```{r}
+#| id: Cargar paquetes
+pacman::p_load(
+  # Gráficos
+  scico,
+  ggridges,
+  treemapify,
+  patchwork,
+  # Tablas
+  flextable,
+  gtsummary,
+  # Tasas estandarizadas
+  PHEindicatormethods,
+  # Regresión joinpoint
+  joinpointR,
+  # Manejo de datos
+  scales,
+  here,
+  rio,
+  janitor,
+  tidyverse
+  # ,
+  # update = TRUE
+)
+
+## Configuración tablas --------------------------------------------------
+theme_gtsummary_language(
+  language = "es",
+  decimal.mark = ",",
+  big.mark = "."
+)
+
+## Paletas colorblind-friendly -------------------------------------------
+pal <- scico(n = 4, palette = "managua")
+
+pal2 <- c(
+  scico(n = 10, palette = "managua", direction = -1),
+  "grey40",
+  "grey60"
+)
+```
+
+```{r}
+#| id: Cargar datos
+#| include: false
+## Población estándar Argentina (2022) -----
+pob_est_2022 <- import(here(
+  "..",
+  "recod_GC",
+  "clean",
+  "arg_pob_est_2022.rds"
+))
+
+## Proyecciones poblacionales Argentina (2010-2023) -----
+proy_2010_2023 <- import(here(
+  "..",
+  "recod_GC",
+  "clean",
+  "arg_proy_mensual_2010_2023.rds"
+)) |>
+  # Seleccionar primer mes del año
+  filter(mes == 1)
+
+
+## Defunciones por grupo de causas -----
+recod_defun <- import(here(
+  "..",
+  "recod_GC",
+  "clean",
+  "arg_defun_mes_2010-2023_recod.rds"
+)) |>
+
+  # Ordenar grupo nivel 1
+  mutate(
+    grupo_n1 = fct_relevel(
+      grupo_n1,
+      "ENT",
+      after = 0
+    )
+  ) |>
+  # Crear variable de agrupamiento nivel 2
+  mutate(
+    grupo_causa = fct_collapse(
+      grupo_n2i,
+      "GC1-GC2" = c("GC1", "GC2"),
+      "GC3-GC4" = c("GC3", "GC4")
+    )
+  )
+```
+
+```{r}
+#| id: Regresiones joinpoint
+#| include: false
+## Tasas estandarizadas por año -----
+datos_jp <- recod_defun |>
+  # Seleccionar muertes por GC
+  filter(str_detect(grupo_n1, "GC")) |>
+  droplevels() |>
+
+  # Agrupar datos por año
+  count(anio, grupo_edad, region_deis, grupo_n2i, wt = n) |>
+
+  # Unir con proyecciones poblacionales
+  left_join(
+    proy_2010_2023 |>
+      # Agrupar por año
+      count(anio, region_deis, grupo_edad, wt = proy_pob, name = "pob")
+  ) |>
+
+  # Añadir totales Argentina
+  (\(x) {
+    bind_rows(
+      x,
+      x |>
+        group_by(anio, grupo_edad, grupo_n2i) |>
+        summarise(
+          region_deis = "Argentina",
+          pob = sum(pob, na.rm = TRUE),
+          n = sum(n, na.rm = TRUE),
+          .groups = "drop"
+        )
+    )
+  })() |>
+
+  # Añadir población estándar 2022
+  left_join(pob_est_2022) |>
+
+  # Calcular tasa estandarizada
+  group_by(anio, region_deis, grupo_causa = grupo_n2i) |>
+  calculate_dsr(
+    x = n,
+    n = pob,
+    stdpop = pob_est_2022,
+    type = "standard"
+  )
+
+
+### Regresión joinpoint -----
+mod_jp <- model_jp(
+  data = datos_jp,
+  value = "value",
+  time = "anio",
+  group = c("region_deis", "grupo_causa"),
+  step = TRUE,
+  k = 3,
+  test = TRUE
+)
+```
+
+## Introducción
+
+- Las enfermedades no transmisibles (ENT) y las causas externas (CE) concentran tres cuartas partes de la mortalidad adulta mundial.
+- La calidad de los datos de mortalidad es fundamental para identificar grupos de riesgo, analizar tendencias y orientar políticas de salud pública.
+- El estudio GBD clasifica las causas de muerte e identifica los códigos basura (GC), definidos como causas inespecíficas o poco útiles para la salud pública.
+
+## 
+
+- Los GC se agrupan en cuatro niveles (GC1–GC4) según su grado de especificidad diagnóstica.
+- La OMS recomienda que la frecuencia de los GC1-GC2 sea \<10% en adultos mayores y \<5% en grupos más jóvenes.
+- En Argentina, la proporción de muertes por los mismos se mantuvo entre 24% y 33% entre 1980 y 2022.
+- Además, existen diferencias jurisdiccionales y limitaciones en la calidad del registro de causas de muerte.
+
+## Objetivos
+
+- Estimar las tasas de mortalidad por GC.
+- Evaluar las tendencias espaciales y temporales de mortalidad por GC.
+- Analizar el impacto de la redistribución de GC sobre la distribución de muertes por ENT y causas externas.
+
+## Materiales y métodos
+
+#### Diseño de estudio
+
+- Estudio ecológico de series temporales sobre mortalidad en personas residentes en Argentina durante el período enero de 2010 y diciembre de 2023.
+
+::: fragment
+#### Criterios de inclusión
+
+- Defunciones ocurridas en Argentina entre enero de 2010 y diciembre de 2023 con datos completos para año de defunción, región, jurisdicción, grupo etario, sexo y causa de muerte.
+:::
+
+## 
+
+### Fuentes de datos
+
+- **DEIS-MSAL**: Mortalidad mensual 2010-2023 por región, jurisdicción, sexo, grupo etario y código CIE-10.
+- **INDEC - Censo Nacional 2010**: Proyecciones poblacionales 2010-2023 por provincia, sexo y grupo etario.
+- **INDEC - Censo Nacional 2022**: Población por grupo etario.
+
+## 
+
+### Variables
+
+```{r}
+#| id: Tabla de variables
+## Datos
+tab <- tibble(
+  Variable = c(
+    "Año",
+    "Región",
+    "Sexo",
+    "Grupo etario",
+    "Causa básica de muerte",
+    "Grupo nivel 1",
+    "Grupo nivel 2",
+    "Número de muertes"
+  ),
+  Descripción = c(
+    "Año correspondiente al evento de defunción",
+    "Agrupación territorial de jurisdicciones definida por la DEIS para resguardar la confidencialidad de los datos",
+    "Sexo consignado en el acta de defunción",
+    "Categorías de edad agrupadas según criterios de la DEIS",
+    "Causa básica de muerte codificada según CIE-10",
+    "Clasificación de las causas de muerte según grandes grupos del GBD 2019",
+    "Clasificación de las causas de muerte según grupos objetivo nivel 2 del GBD-2019",
+    "Cantidad anual de defunciones según región, sexo, grupo etario y causa básica de muerte"
+  ),
+
+  Valores = c(
+    "2010-2023",
+    "Centro; NEA; NOA1; NOA2; Cuyo; Patagonia Norte y Patagonia Sur",
+    "Masculino; Femenino",
+    "<20 años; 20–39; 40–49; 50–59; 60–69; 70–79; ≥80 años",
+    "A00.0-Z99.9",
+    "CMNN; ENT; CE; GC",
+    "CMNN; DM; ECV; ERC; NPL; TRA; HO; SU; GC1; GC2; GC3; GC4",
+    "0-Inf"
+  )
+)
+
+## Crear tabla
+tab |>
+  flextable() |>
+  theme_vanilla() |>
+  fontsize(size = 18, part = "all") |>
+  autofit()
+```
+
+## 
+
+### Algoritmo de redistribución
+
+```{dot}
+//| id: Paso 1
+digraph{
+    graph [
+    layout = dot,
+    rankdir = TR,
+    fontsize=24,
+    fontname="Arial",
+    labelloc="t"
+    ]
+  
+    node [
+    shape = box,
+    style = filled
+    color = darkgrey,
+    fillcolor = grey95,
+    fontname="Arial",
+    margin = 0.1
+    ]
+  
+  // Paso 1
+    subgraph cluster1{
+      bgcolor = "#FFCE66"
+      ranksep=.5
+      label="Paso 1"
+
+      t1[style="invis"]
+
+      a1[label=<<b>ENT objetivo</b><br/><br/> • Diabetes <br/> • ECV <br/> • ERC <br/> • Neoplasias>]
+
+      b1[label=<<b>CE objetivo</b> <br/><br/> • Tránsito <br/> • Homicidio <br/> • Suicidio>]
+      
+      c1[label=<<b>Otras causas</b> <br/><br/> • CMNN <br/> • Otras ENT <br/> • Otras CE>]
+
+      d1[label=<<b>Códigos basura</b> <br/><br/> • GC1 <br/> • GC2 <br/> • GC3 <br/> • GC4>]
+          
+    }
+      
+      ## Ordenar nodos ##
+      t1 -> {a1; b1; c1} -> d1[style = invis]    
+}
+```
+
+::: {style="font-size: .5em;"}
+Adaptado de @teixeira2021 y @soaresfilho2024
+:::
+
+## 
+
+### Algoritmo de redistribución
+
+```{dot}
+//| id: Pasos 1 y 2
+digraph{
+    graph [
+    layout = dot,
+    rankdir=TR
+    bgcolor = white,
+    fontsize=24,    
+    fontname="Arial",
+    labelloc="t"
+    ]
+  
+    node [
+    shape = box,
+    style = filled
+    color = darkgrey,
+    fillcolor="grey95",
+    fontname="Arial",
+    margin = 0.1
+    ]
+
+    // Paso 1
+    subgraph cluster1{
+      bgcolor = "#FFCE66"
+      ranksep=.5
+      label="Paso 1"
+
+      t1[style="invis"]
+
+      a1[label=<<b>ENT objetivo</b><br/><br/> • Diabetes <br/> • ECV <br/> • ERC <br/> • Neoplasias>]
+
+      b1[label=<<b>CE objetivo</b> <br/><br/> • Tránsito <br/> • Homicidio <br/> • Suicidio>]
+      
+      c1[label=<<b>Otras causas</b> <br/><br/> • CMNN <br/> • Otras ENT <br/> • Otras CE>]
+
+      d1[label=<<b>Códigos basura</b> <br/><br/> • GC1 <br/> • GC2 <br/> • GC3 <br/> • GC4>]
+          
+    }
+
+    // Paso 2
+    subgraph cluster2{
+    bgcolor = "#92463A"
+    ranksep=.5
+    label="Paso 2"
+
+      t2[style="invis"]
+
+      a2[label=<<b>ENT objetivo</b><br/><br/> • Diabetes <br/> • ECV <br/> • ERC <br/> • Neoplasias>]
+
+      b2[label=<<b>CE objetivo</b> <br/><br/> • Tránsito <br/> • Homicidio <br/> • Suicidio>]
+      
+      c2[label=<<b>Otras causas</b> <br/><br/> • CMNN <br/> • Otras ENT <br/> • Otras CE>]
+
+      d2[label=<<b>Códigos basura</b> <br/><br/> • GC1 <br/> • GC2 <br/>>]
+
+      e[label=<Reasignar GC3-GC4>]      
+
+      f[label=<Redistribuir 50% neumonías <br/> inespecíficas por edad y sexo>]
+
+      g[label=<Reasignar 50% neumonías <br/> inespecíficas a CMNN>]
+    
+      ## Ordenar nodos
+      { rank=min; t1 t2};
+      { rank=same; a1 b1 c1};
+      { rank=same; a2 b2 c2};
+      { rank=same; f g};
+      { rank=max; d2};
+    
+      t1 -> {a1; b1; c1} -> d1[style = invis] 
+      e  -> {a2; b2; c2}  
+      {a2; b2; c2} -> d2[style = invis]  
+      a2 -> f[style="invis"]
+      f -> a2 
+      c2 -> g[style="invis"]
+      g -> c2
+      {f; g} -> d2 [style = invis]  
+
+    
+    }
+}
+```
+
+::: {style="font-size: .5em;"}
+Adaptado de @teixeira2021 y @soaresfilho2024
+:::
+
+## 
+
+### Algoritmo de redistribución
+
+```{dot}
+//| id: Paso 3
+digraph {
+    graph [
+        rankdir=TR
+        bgcolor = white,
+        fontsize=24,        
+        fontname="Arial",
+        labelloc="t"
+    ]
+  
+    node [
+        shape = box,
+        style = filled
+        color = darkgrey,
+        fillcolor="grey95",
+        fontname="Arial",
+        margin = 0.1
+    ]
+
+     // Paso 3
+    subgraph cluster3 {
+        bgcolor = "#4D5492E5"
+        ranksep=.5
+        label="Paso 3"
+
+        a3[label=<<b>ENT objetivo</b><br/><br/> • Diabetes <br/> • ECV <br/> • ERC <br/> • Neoplasias>]
+
+        b3[label=<<b>CE objetivo</b> <br/><br/> • Tránsito <br/> • Homicidio <br/> • Suicidio>]
+      
+        c3[label=<<b>Otras causas</b> <br/><br/> • CMNN <br/> • Otras ENT <br/> • Otras CE>]
+
+        d3[label=<<b>Códigos basura</b> <br/><br/> • GC1 <br/>>]
+
+        h[label="Redistribuir GC2 inespecíficos \n por edad y sexo"]
+        i[label="GC2-ECV: \n hipertensión (I10, I15) \n cor pulmonale (I27), \n ateroesclerosis (I70) \n embolia arterial (I74)"]
+        j[label="Redistribuir GC2-CE \n por edad y sexo"]
+        
+        ## Ordenar nodos ##
+        { rank=same; a3 b3 c3 }; 
+        { rank=same; d3 i j};
+       
+        h -> {a3; b3; c3}
+        {a3; b3; c3} -> d3[style = invis]
+        i -> a3
+        j -> {b3; c3}
+    }
+}
+```
+
+::: {style="font-size: .5em;"}
+Adaptado de @teixeira2021 y @soaresfilho2024
+:::
+
+## 
+
+### Algoritmo de redistribución
+
+```{dot}
+//| id: Pasos 3 y 4
+digraph {
+    graph [
+        rankdir=TR
+        bgcolor = white,
+        fontsize=24,        
+        fontname="Arial",
+        labelloc="t"
+    ]
+  
+    node [
+        shape = box,
+        style = filled
+        color = darkgrey,
+        fillcolor="grey95",
+        fontname="Arial",
+        margin = 0.1
+    ]
+
+     // Paso 3
+    subgraph cluster3 {
+        bgcolor = "#4D5492E5"
+        ranksep=.5
+        label="Paso 3"
+
+        a3[label=<<b>ENT objetivo</b><br/><br/> • Diabetes <br/> • ECV <br/> • ERC <br/> • Neoplasias>]
+
+        b3[label=<<b>CE objetivo</b> <br/><br/> • Tránsito <br/> • Homicidio <br/> • Suicidio>]
+      
+        c3[label=<<b>Otras causas</b> <br/><br/> • CMNN <br/> • Otras ENT <br/> • Otras CE>]
+
+        d3[label=<<b>Códigos basura</b> <br/><br/> • GC1 <br/>>]
+        h[label="Redistribuir GC2 inespecíficos \n por edad y sexo"]
+        i[label="GC2-ECV: \n hipertensión (I10, I15) \n cor pulmonale (I27), \n ateroesclerosis (I70) \n embolia arterial (I74)"]
+        j[label="Redistribuir GC2-CE \n por edad y sexo"]
+        
+        ## Ordenar nodos ##
+        { rank=same; a3 b3 c3 }; 
+        { rank=same; d3 i j};
+       
+        h -> {a3; b3; c3}
+        {a3; b3; c3} -> d3[style = invis]
+        i -> a3
+        j -> {b3; c3}
+    }
+
+    // Paso 4
+    subgraph cluster4{
+      bgcolor = "#80E6FF"
+      label="Paso 4"
+
+      a4[label=<<b>ENT objetivo</b><br/><br/> • Diabetes <br/> • ECV <br/> • ERC <br/> • Neoplasias>]
+
+      b4[label=<<b>CE objetivo</b> <br/><br/> • Tránsito <br/> • Homicidio <br/> • Suicidio>]
+      
+      c4[label=<<b>Otras causas</b> <br/><br/> • CMNN <br/> • Otras ENT <br/> • Otras CE>]
+
+      k[label="Redistribuir GC1 inespecíficos \n por edad y sexo"]
+      
+      l[label="GC1-ERC \n • Falla resp. crónica (J96.1)"]
+
+      m[label="Redistribuir GC1-CE \n por edad y sexo"]
+      
+      ## Ordenar nodos ##
+      { rank=same; a4 b4 c4 }; 
+      { rank=same; l m };
+      k-> {a4; b4; c4}
+      {a4; b4; c4} -> {l; m}[style = invis]
+      l -> a4
+      m -> {b4; c4}
+    }
+}
+```
+
+::: {style="font-size: .5em;"}
+Adaptado de @teixeira2021 y @soaresfilho2024
+:::
+
+## 
+
+### Análisis estadístico
+
+- Distribución (%) de muertes por grupo de causas, sexo y edad (Chi-cuadrado de Pearson).
+- Tasas específicas de mortalidad por GC según región, año y nivel.
+- Estandarización directa utilizando población estándar Argentina 2022.
+
+## 
+
+- Tendencias temporales mediante regresión joinpoint:
+  - Variable dependiente: logaritmo de la tasa estandarizada
+  - Variable independiente: año de defunción
+  - Estratificación por región y nivel GC
+  - Máximo tres puntos de cambio (joinpoints)
+  - Selección del modelo mediante BIC.
+- Cambio absoluto y relativo (%) de las frecuencias de causas definidas luego de la redistribución de GC.
+
+## Resultados
+
+```{r}
+#| id: Defunciones por edad y sexo
+#| tbl-cap: "**Defunciones por edad y sexo, Argentina (2010-2023)**"
+recod_defun |>
+  uncount(weights = n) |>
+  # Tabla 2x2
+  tbl_cross(
+    row = grupo_edad,
+    col = sexo,
+    percent = "row",
+    digits = c(0, 1),
+    label = list(sexo = "Sexo", grupo_edad = "Grupo edad")
+  ) |>
+
+  # Añadir significancia
+  add_p() |>
+
+  # Modificar layout
+  bold_labels() |>
+  modify_indent(columns = label, indent = 0L) |>
+  remove_footnote_header()
+```
+
+## 
+
+```{r}
+#| id: Defunciones por edad y causa nivel 1
+#| tbl-cap: "**Defunciones por edad y grupo de causas nivel 1, Argentina (2010-2023)**"
+recod_defun |>
+  # Individualizar filas para calcular frecuencias
+  uncount(weights = n) |>
+
+  # Tabla 2x2
+  tbl_cross(
+    row = grupo_edad,
+    col = grupo_n1,
+    percent = "row",
+    digits = c(0, 1),
+    label = list(grupo_n1 = "Grupo causa", grupo_edad = "Grupo edad")
+  ) |>
+
+  # Añadir significancia
+  add_p() |>
+
+  # Modificar layout
+  bold_labels() |>
+  modify_indent(columns = label, indent = 0L) |>
+  remove_footnote_header() |>
+  as_flex_table() |>
+
+  # Resaltar celdas
+  highlight(i = 3, j = 3, color = pal[1]) |>
+  highlight(i = 2, j = 4, color = pal[1]) |>
+  highlight(i = 8, j = 5, color = pal[1])
+```
+
+## 
+
+```{r}
+#| id: Defunciones por edad y causa nivel 2
+#| tbl-cap: "**Defunciones por edad y grupo de causas nivel 2, Argentina (2010-2023)**"
+recod_defun |>
+  count(grupo_edad, grupo_n1, grupo_causa, wt = n) |>
+  mutate(pct = n / sum(n)) |>
+  ggplot(aes(x = grupo_edad, y = pct, fill = grupo_causa)) +
+  facet_wrap(~grupo_n1, scales = "free_y") +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = pal2, name = NULL) +
+  scale_y_continuous(name = NULL, labels = percent) +
+  scale_x_discrete(name = NULL) +
+  # coord_flip() +
+  guides(fill = guide_legend(nrow = 2)) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 90)
+  )
+```
+
+## 
+
+```{r}
+#| id: GC1-GC2 más frecuentes
+#| tbl-cap: "**GC1 y GC2 más frecuentes, Argentina (2010-2023)**"
+## Datos para la tabla
+tab <- recod_defun |>
+  # Filtrar GC1-GC2
+  filter(grupo_causa %in% c("GC1-GC2")) |>
+
+  # Reagrupar niveles
+  mutate(
+    cie10_cod = if_else(
+      cie10_cod == "A41.9",
+      cie10_cod,
+      str_sub(cie10_cod, 1, 3)
+    )
+  ) |>
+
+  # Frecuencia muertes
+  count(Código = cie10_cod, wt = n) |>
+  mutate(pct = percent(n / sum(n), accuracy = .1, decimal.mark = ",")) |>
+
+  # Filtrar por frecuencia
+  arrange(-n) |>
+  filter_out(n < 20000) |>
+
+  # Añadir descripción
+  mutate(
+    Causa = c(
+      "Insuficiencia cardíaca",
+      "Otras causas mal definidas y no especificadas de mortalidad",
+      "Insuficiencia respiratoria",
+      "Septicemia no especificada",
+      "Neumonitis por alimentos o vómito",
+      "Insuficiencia renal no especificada",
+      "Otras enfermedades del sistema digestivo",
+      "Hipertensión esencial (primaria)",
+      "Exposición a factor no especificado",
+      "Shock, no clasificado en otra parte",
+      "Edema pulmonar",
+      "Insuficiencia renal aguda",
+      "Otras muertes súbitas de causa desconocida",
+      "Embolia pulmonar",
+      "Peritonitis"
+    ),
+    .after = "Código"
+  )
+
+## Mostrar tabla
+tab |>
+  flextable() |>
+  bold(part = "header") |>
+  autofit()
+```
+
+## 
+
+```{r}
+#| id: Distribución tasas GC
+fig2 <- datos_jp |>
+  mutate(
+    region_deis = fct_relevel(region_deis, "NEA", "Centro", after = Inf)
+  ) |>
+
+  # Gráfico
+  ggplot(aes(x = value, y = grupo_causa, fill = grupo_causa)) +
+  facet_wrap(~region_deis, ncol = 3) +
+
+  # Geometrías
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = "raincloud",
+    color = NA,
+    alpha = 0.75,
+    point_color = "grey40",
+    point_alpha = 0.5,
+    scale = 4
+  ) +
+
+  # Escalas
+  scale_x_continuous(limits = c(0, 150)) +
+  scale_fill_manual(values = pal, name = NULL) +
+
+  # Layout
+  labs(
+    title = "Distribución tasas mortalidad por GC, Argentina (2010-2023)",
+    x = "Tasa est. (100.000 hab.)",
+    y = NULL
+  ) +
+
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold")
+  )
+
+# Mostrar figura
+fig2
+```
+
+## 
+
+```{r}
+#| id: Coeficientes joinpoint Argentina
+#| tbl-cap: "**Coeficientes regresión joinpoint, Argentina (2010-2023)**"
+summary_jp(
+  mods = mod_jp[1:4],
+  var1 = "Región",
+  var2 = "Nivel",
+  ft = TRUE,
+  lan = "es"
+)
+```
+
+## 
+
+```{r}
+#| id: Gráfico joinpoint Argentina
+gg_jpoint(mods = mod_jp[1:4], facets = TRUE) +
+  scale_color_manual(values = pal, name = NULL) +
+  scale_x_continuous(n.breaks = 7) +
+  labs(title = "Rectas regresión joinpoint, Argentina (2010-2023)") +
+  theme(legend.position = "none")
+```
+
+## 
+
+```{r}
+#| id: Gráfico joinpoint regiones Centro y NEA
+# Región Centro
+g1 <- gg_jpoint(mods = mod_jp[5:8], facets = TRUE) +
+  labs(subtitle = "Centro (CABA, PBA, Córdoba, Entre Ríos, Sta. Fe)")
+
+# Región NEA
+g2 <- gg_jpoint(mods = mod_jp[17:20], facets = TRUE) +
+  labs(subtitle = "NEA (Corrientes, Chaco, Formosa, Misiones)")
+
+## Unir gráficos
+g1 /
+  g2 &
+  scale_color_manual(values = pal, name = NULL) &
+  scale_x_continuous(n.breaks = 7) &
+  theme(
+    legend.position = "none",
+    strip.text = element_blank()
+  )
+```
+
+## 
+
+```{r}
+#| id: Gráfico joinpoint región Cuyo
+# Cuyo (Mendoza)
+g1 <- gg_jpoint(mods = mod_jp[9:12], facets = TRUE) +
+  facet_wrap(~group, ncol = 4) +
+  labs(subtitle = "Cuyo (S. Juan, S. Luis, La Rioja)")
+
+# Cuyo
+g2 <- gg_jpoint(mods = mod_jp[13:16], facets = TRUE) +
+  labs(subtitle = "Cuyo (Mendoza)")
+
+## Unir gráficos
+g1 /
+  g2 &
+  facet_wrap(~group, ncol = 4) &
+  scale_color_manual(values = pal, name = NULL) &
+  scale_x_continuous(n.breaks = 7) &
+  theme(
+    legend.position = "none",
+    strip.text = element_blank(),
+    axis.text.x = element_text(angle = 90)
+  )
+```
+
+## 
+
+```{r}
+#| id: Gráfico joinpoint región NOA
+# Tucumán
+g1 <- gg_jpoint(mods = mod_jp[21:24], facets = TRUE) +
+  labs(subtitle = "NOA (Tucumán)")
+
+# NOA 1
+g2 <- gg_jpoint(mods = mod_jp[25:28], facets = TRUE) +
+  labs(subtitle = "NOA1 (Jujuy, Salta)")
+
+# NOA 2
+g3 <- gg_jpoint(mods = mod_jp[29:32], facets = TRUE) +
+  labs(subtitle = "NOA2 (Catamarca, S. del Estero)")
+
+## Unir gráficos
+g1 /
+  g2 /
+  g3 &
+  facet_wrap(~group, ncol = 4) &
+  scale_color_manual(values = pal, name = NULL) &
+  scale_x_continuous(n.breaks = 7) &
+  theme(
+    legend.position = "none",
+    strip.text = element_blank(),
+    axis.text.x = element_text(angle = 90)
+  )
+```
+
+## 
+
+```{r}
+#| id: Gráfico joinpoint región Patagonia
+# Patagonia Norte
+g1 <- gg_jpoint(mods = mod_jp[33:36], facets = TRUE) +
+  labs(subtitle = "Patagonia Norte (La Pampa, Neuquén, Río Negro)")
+
+# Patagonia Sur
+g2 <- gg_jpoint(mods = mod_jp[37:40], facets = TRUE) +
+  labs(subtitle = "Patagonia Sur (Chubut, Sta. Cruz, T. del Fuego)")
+
+## Unir gráficos
+g1 /
+  g2 &
+  facet_wrap(~group, ncol = 4) &
+  scale_color_manual(values = pal, name = NULL) &
+  scale_x_continuous(n.breaks = 7) &
+  theme(
+    legend.position = "none",
+    strip.text = element_blank(),
+    axis.text.x = element_text(angle = 90)
+  )
+```
+
+## 
+
+```{r}
+#| id: Frecuencias iniciales
+#| fig-cap: "**Frecuencias iniciales por grupo de causas, Argentina (2010-2023)**"
+recod_defun |>
+  # Frecuencias por grupo
+  count(grupo_n1, grupo_causa, wt = n) |>
+  mutate(pct = n / sum(n)) |>
+
+  # Crear variable para color de relleno
+  mutate(
+    fill = fct_collapse(
+      grupo_causa,
+      "GC" = c("GC1-GC2", "GC3-GC4")
+    )
+  ) |>
+
+  # Crear etiquetas texto
+  mutate(
+    label = if_else(
+      pct < 0.02,
+      percent(pct, accuracy = .1, decimal.mark = ","),
+      paste0(grupo_causa, "\n", percent(pct, accuracy = .1, decimal.mark = ","))
+    )
+  ) |>
+
+  # Gráfico
+  ggplot(aes(area = pct, subgroup = grupo_n1, fill = fill)) +
+  geom_treemap() +
+
+  # Añadir borde
+  geom_treemap_subgroup_border() +
+
+  # Añadir texto
+  geom_treemap_text(
+    aes(label = label),
+    place = "center",
+    reflow = TRUE,
+    min.size = 3,
+    color = "white",
+    family = "Times New Roman"
+  ) +
+
+  # Escala de colores
+  scale_fill_manual(values = pal2, name = NULL) +
+
+  # Layout
+  theme(
+    text = element_text(family = "Times New Roman", size = 9),
+    legend.key.size = unit(1, "points")
+  )
+```
+
+## 
+
+```{r}
+#| id: Frecuencias paso 2
+#| fig-cap: "**Frecuencias por grupo de causas luego de reasignar GC3-GC4, Argentina (2010-2023)**"
+recod_defun |>
+  # Reagrupar grupo nivel 1
+  mutate(
+    grupo_n1 = case_when(
+      grupo_n2m %in% c("DM", "ECV", "ERC", "NPL", "ONT") ~ "ENT",
+      grupo_n2m %in% c("HO", "SU", "TRA", "OCE") ~ "CE",
+      .default = grupo_n2m
+    ) |>
+      fct_relevel("ENT", after = 0)
+  ) |>
+  # Frecuencias por grupo
+  count(grupo_n1, grupo_n2m, wt = n) |>
+  mutate(pct = n / sum(n)) |>
+
+  # Crear variable para color de relleno
+  mutate(
+    fill = fct_collapse(
+      grupo_n2m,
+      "GC" = c("GC1", "GC2")
+    )
+  ) |>
+
+  # Crear etiquetas texto
+  mutate(
+    label = if_else(
+      pct < 0.02,
+      percent(pct, accuracy = .1, decimal.mark = ","),
+      paste0(grupo_n2m, "\n", percent(pct, accuracy = .1, decimal.mark = ","))
+    )
+  ) |>
+
+  # Gráfico
+  ggplot(aes(area = pct, subgroup = grupo_n1, fill = fill)) +
+  geom_treemap() +
+
+  # Añadir borde
+  geom_treemap_subgroup_border() +
+
+  # Añadir texto
+  geom_treemap_text(
+    aes(label = label),
+    place = "center",
+    reflow = TRUE,
+    min.size = 3,
+    color = "white",
+    family = "Times New Roman"
+  ) +
+
+  # Escala de colores
+  scale_fill_manual(values = pal2, name = NULL) +
+
+  # Layout
+  theme(
+    text = element_text(family = "Times New Roman", size = 9),
+    legend.key.size = unit(1, "points")
+  )
+```
+
+## 
+
+```{r}
+#| id: Frecuencias pasos 3-4
+#| fig-cap: "**Frecuencias por grupo de causas luego de reasignar GC1-GC2, Argentina (2010-2023)**"
+recod_defun |>
+  # Reagrupar grupo nivel 1
+  mutate(
+    grupo_n1 = case_when(
+      grupo_n2f %in% c("DM", "ECV", "ERC", "NPL", "ONT") ~ "ENT",
+      grupo_n2f %in% c("HO", "SU", "TRA", "OCE") ~ "CE",
+      .default = grupo_n2f
+    ) |>
+      fct_relevel("ENT", after = 0)
+  ) |>
+  # Frecuencias por grupo
+  count(grupo_n1, grupo_n2f, wt = n) |>
+  mutate(pct = n / sum(n)) |>
+
+  # Crear etiquetas texto
+  mutate(
+    label = if_else(
+      pct < 0.02,
+      percent(pct, accuracy = .1, decimal.mark = ","),
+      paste0(grupo_n2f, "\n", percent(pct, accuracy = .1, decimal.mark = ","))
+    )
+  ) |>
+
+  # Gráfico
+  ggplot(aes(area = pct, subgroup = grupo_n1, fill = grupo_n2f)) +
+  geom_treemap() +
+
+  # Añadir borde
+  geom_treemap_subgroup_border() +
+
+  # Añadir texto
+  geom_treemap_text(
+    aes(label = label),
+    place = "center",
+    reflow = TRUE,
+    min.size = 3,
+    color = "white",
+    family = "Times New Roman"
+  ) +
+
+  # Escala de colores
+  scale_fill_manual(values = pal2, name = NULL) +
+
+  # Layout
+  theme(
+    text = element_text(family = "Times New Roman", size = 9),
+    legend.key.size = unit(1, "points")
+  )
+```
+
+## 
+
+```{r}
+#| id: Cambio frecuencias
+recod_defun |>
+  # Frecuencias por grupo
+  count(grupo_causa, wt = n) |>
+
+  # Añadir frecuencias finales
+  left_join(
+    recod_defun |>
+      # Frecuencias por grupo
+      count(grupo_causa = grupo_n2f, wt = n, name = "n_fin")
+  ) |>
+
+  # Cambio absoluto y relativo
+  mutate(
+    cambio_rel = percent(((n_fin - n) / n), accuracy = .1, decimal.mark = ","),
+    razon_post_pre = number(n_fin / n, accuracy = .1, decimal.mark = ",")
+  ) |>
+
+  # Renombrar columnas
+  rename(
+    "Grupo causa" = 1,
+    "n (inicial)" = 2,
+    "n (final)" = 3,
+    "Cambio relativo" = cambio_rel,
+    "Razón cambio" = razon_post_pre
+  ) |>
+  # Formato tabla
+  flextable() |>
+  bold(part = "header") |>
+  fontsize(size = 16, part = "all") |>
+  autofit()
+```
+
+## Paquete joinpointR
+
+![10.32614/CRAN.package.joinpointR](images/logo_rex.png){fig-align="center" width="50%"}
+
+## 
+
+### Funciones
+
+- `model_jp`: ajusta regresiones joinpoint *step-foward* para log-tasa según niveles de una variable categórica.
+
+- `get_apc`: muestra cambio porcentual anual (APC) y su intervalo de confianza al 95% (solo si hay joinpoints significativos).
+
+- `get_aapc`: muestra cambio porcentual promedio (AAPC) y su intervalo de confianza al 95%.
+
+## 
+
+- `summary_jp`: crea tablas resumen con número de joinpoints, períodos, APC y su intervalo de confianza al 95% y AAPC con su significancia estadística.
+
+- `gg_jpoint`: crea salida gráfica para regresiones joinpoint, permite mostrar los datos y puntos de corte.
+
+## Discusión
+
+- Diferencias significativas en la proporción de muertes por GC según grupo etario.
+
+- Diferencias regionales en la tendencia de las tasas de mortalidad por GC.
+
+- Cambios importantes en la frecuencia de muertes por ENT luego de la redistribución.
+
+- Publicación de resultados en Revista Brasileira de Epidemiología y The R Journal.
+
+
+## 
+
+![](images/Muchas Gracias!!!.png){fig-align="center"}
+
+
+## Referencias
+
+::: references
+:::
+
+
+
