@@ -1,5 +1,5 @@
 ---
-title: "Mortalidad por codigos *garbage* en Argentina (2010–2023): redistribución hacia causas específicas"
+title: "Mortalidad por codigos *garbage* <br> en Argentina (2010–2023)"
 bibliography: references.bib
 ---
 
@@ -23,19 +23,30 @@ knitr::opts_chunk$set(
 ```{r}
 #| id: Cargar paquetes
 #| include: false
+# remotes::install_github("https://github.com/datos-ine/joinpointR")
 pacman::p_load(
   ggridges,
   treemapify,
   PHEindicatormethods,
   joinpointR,
   flextable,
-  gtsummary,
   scales,
   here,
   rio,
   janitor,
   tidyverse
 )
+
+# ---- Formato tablas ----
+tab_format <- function(x) {
+  x |>
+    flextable() |>
+    fontsize(size = 16, part = "all") |>
+    bg(bg = "#2F2E4E", part = "header") |>
+    color(color = "white", part = "header") |>
+    valign(valign = "top") |>
+    autofit()
+}
 ```
 
 ```{r}
@@ -108,25 +119,6 @@ datos_gc <- import(here(
           )
       ),
       .names = "{.col}_{.fn}"
-    )
-  ) |>
-
-  # --- Ordenar datos ---
-  mutate(
-    jurisd_deis = fct_relevel(
-      jurisd_deis,
-      "Buenos Aires",
-      "CABA",
-      "Córdoba",
-      "Entre Ríos",
-      "Santa Fe",
-      "Mendoza",
-      "Cuyo2",
-      "Chaco",
-      "Corrientes",
-      "Formosa",
-      "Misiones",
-      "Tucumán"
     )
   )
 ```
@@ -220,57 +212,6 @@ tasa_gc_reg <- datos_gc |>
     stdpop = pob_est_2022,
     type = "standard"
   )
-
-
-## ---- Jurisdicción DEIS ----
-tasa_gc_jur <- datos_gc |>
-  # --- Seleccionar muertes codificadas como GC ---
-  filter(str_detect(gbd_paso1, "GC")) |>
-  droplevels() |>
-
-  # --- Modificar niveles paso 1 ---
-  mutate(nivel = str_remove(gbd_paso1, ".*:")) |>
-
-  # --- Frecuencias anuales ---
-  count(
-    anio,
-    grupo_edad,
-    region_deis,
-    jurisd_deis,
-    nivel,
-    wt = n
-  ) |>
-
-  # --- Unir con proyecciones poblacionales ---
-  left_join(
-    proy_2010_2023 |>
-      # Agrupar por año
-      count(
-        anio,
-        region_deis,
-        jurisd_deis,
-        grupo_edad,
-        wt = proy,
-        name = "pob"
-      )
-  ) |>
-
-  # --- Añadir población estándar 2022 ---
-  left_join(pob_est_2022) |>
-
-  # --- Calcular tasa estandarizada ---
-  group_by(anio, region_deis, jurisd_deis, nivel) |>
-  calculate_dsr(
-    x = n,
-    n = pob,
-    stdpop = pob_est_2022,
-    type = "standard"
-  ) |>
-
-  # --- Crear etiqueta para las tablas ---
-  mutate(
-    label = fct_cross(region_deis, jurisd_deis)
-  )
 ```
 
 ```{r}
@@ -280,7 +221,8 @@ mod_ar <- model_jp_grid(
   data = tasa_gc_arg,
   rate = value,
   time = anio,
-  group = c("nivel", "region_deis")
+  group = c("nivel", "region_deis"),
+  silent = TRUE
 )
 
 
@@ -289,62 +231,64 @@ mod_reg <- model_jp_grid(
   data = tasa_gc_reg,
   rate = value,
   time = anio,
-  group = c("nivel", "region_deis")
-)
-
-
-# ---- Jurisdicción ----
-mod_jur <- model_jp_grid(
-  data = tasa_gc_jur,
-  rate = value,
-  time = anio,
-  group = c("nivel", "label")
+  group = c("nivel", "region_deis"),
+  silent = TRUE
 )
 ```
 
 ## Introducción
 
-- Las enfermedades no transmisibles (ENT) concentran tres cuartas partes (76,4%) de la mortalidad adulta mundial.
+- Las enfermedades no transmisibles (ENT) concentran tres cuartas partes (76,4%) de la mortalidad adulta mundial [@gbd2024].
+
 - Las lesiones por causas externas (CE) constituyen una fuente de mortalidad prematura en adultos jóvenes.
+
 - Contar con datos de mortalidad de buena calidad es fundamental para identificar grupos de riesgo, analizar tendencias y orientar políticas de salud pública.
+
+## Introducción
+
 - El estudio GBD clasifica las causas de muerte e identifica los códigos basura (GC), definidos como causas inespecíficas o poco útiles para la salud pública.
 
-## 
-
 - Los GC se agrupan en cuatro niveles (GC1–GC4) según su grado de especificidad diagnóstica.
+
 - La OMS recomienda que la frecuencia de los GC1-GC2 sea \<10% en adultos mayores y \<5% en grupos más jóvenes.
-- En Argentina, la proporción de muertes por los mismos se mantuvo entre 24% y 33% entre 1980 y 2022.
-- Además, existen diferencias jurisdiccionales y limitaciones en la calidad del registro de causas de muerte.
+
+## Introducción
+
+- En Argentina, la proporción de muertes por los GC1-GC2 se mantuvo entre 24% y 33% entre 1980 y 2022.
+
+- Además, se observan diferencias entre jurisdicciones, posiblemente asociadas a desigualdades sanitarias.
 
 ## Objetivos
 
+- Analizar el impacto de la redistribución de GC sobre el perfil de mortalidad por ENT y CE en Argentina
+
 - Estimar las tasas de mortalidad por GC.
-- Evaluar las tendencias espaciales y temporales de mortalidad por GC.
-- Analizar el impacto de la redistribución de GC sobre la distribución de muertes por ENT y causas externas.
 
-## Materiales y métodos
+- Evaluar las tendencias espaciales y temporales de mortalidad por GC en el período 2010-2023.
 
-#### Diseño de estudio
+## Diseño de estudio
 
-- Estudio ecológico de series temporales sobre mortalidad en personas residentes en Argentina durante el período enero de 2010 y diciembre de 2023.
+- Estudio ecológico de series temporales sobre mortalidad en Argentina entre enero de 2010 y diciembre de 2023.
 
-::: fragment
-#### Criterios de inclusión
+- Esta investigación deriva de un proyecto más amplio sobre exceso de mortalidad por enfermedades no transmisibles (ENT) y causas externas (CE) durante la pandemia de enfermedad por coronavirus 2019 (COVID-19) en Argentina.
 
-- Defunciones ocurridas en Argentina entre enero de 2010 y diciembre de 2023 con datos completos para año de defunción, región, jurisdicción, grupo etario, sexo y causa de muerte.
-:::
+## Criterios de inclusión
 
-## 
+- Se incluyeron todas las defunciones ocurridas en Argentina entre el 1 de enero de 2010 y el 31 de diciembre de 2023.
 
-### Fuentes de datos
+- Se excluyeron aquellos registros con datos faltantes en año de defunción, región, jurisdicción, grupo etario, sexo y/o causa básica de muerte.
+
+- No se realizó imputación de datos debido a que los registros incompletos representaron el 1% de las observaciones.
+
+## Fuentes de datos
 
 - **DEIS-MSAL**: Mortalidad mensual 2010-2023 por región, jurisdicción, sexo, grupo etario y código CIE-10.
+
 - **INDEC - Censo Nacional 2010**: Proyecciones poblacionales 2010-2023 por provincia, sexo y grupo etario.
+
 - **INDEC - Censo Nacional 2022**: Población por grupo etario.
 
-## 
-
-### Variables
+## Variables
 
 ```{r}
 #| id: Tabla de variables
@@ -357,8 +301,7 @@ tab <- tibble(
     "Grupo etario",
     "Causa básica de muerte",
     "Grupo nivel 1",
-    "Grupo nivel 2",
-    "Número de muertes"
+    "Grupo causa"
   ),
   Descripción = c(
     "Año correspondiente al evento de defunción",
@@ -366,9 +309,8 @@ tab <- tibble(
     "Sexo consignado en el acta de defunción",
     "Categorías de edad agrupadas según criterios de la DEIS",
     "Causa básica de muerte codificada según CIE-10",
-    "Clasificación de las causas de muerte según grandes grupos del GBD 2019",
-    "Clasificación de las causas de muerte según grupos objetivo nivel 2 del GBD-2019",
-    "Cantidad anual de defunciones según región, sexo, grupo etario y causa básica de muerte"
+    "Clasificación de las causas de muerte según grandes grupos del GBD 2023",
+    "Clasificación de las causas de muerte según grupos objetivo nivel 2 y 3 del GBD-2023"
   ),
 
   Valores = c(
@@ -378,30 +320,25 @@ tab <- tibble(
     "<20 años; 20–39; 40–49; 50–59; 60–69; 70–79; ≥80 años",
     "A00.0-Z99.9",
     "CMNN; ENT; CE; GC",
-    "CMNN-INF, CMNN:MAT-NEO, CMNN:NUTR; ENT:DM-CKD; ENT:ECV; ENT:CRD; ENT:NPL; ENT:OTR-ENT; CE:TRA; CE:SH; CE:VI; CE:CA; CE:OTR-CE; GC1; GC2; GC3; GC4",
-    "0-Inf"
+    "CMNN-INF, CMNN:MAT-NEO, CMNN:NUTR; ENT:DM-CKD; ENT:ECV; ENT:CRD; ENT:NPL; ENT:OTR-ENT; CE:TRA; CE:SH; CE:VI; CE:CA; CE:OTR-CE; GC1; GC2; GC3; GC4"
   )
 )
 
 # ---- Tabla ----
 tab |>
-  flextable() |>
-  theme_vanilla() |>
-  fontsize(size = 14, part = "all") |>
-  autofit()
+  # Layout
+  tab_format()
 ```
 
-## 
-
-### Algoritmo de redistribución
+## Algoritmo de redistribución
 
 ```{dot}
 //| id: Paso 1
 digraph G {
-    rankdir=LR
+   rankdir=LR
    graph[
-    fontsize = 14
-    fontname="Times-Roman"
+    fontsize = 18
+    fontname="Calibri"
     style = filled
     nodesep=.5
     ranksep=.15
@@ -412,14 +349,15 @@ digraph G {
     shape = plain
     style = filled
     fillcolor="grey95"
-    fontsize = 14
-    fontname="Times-Roman"
+    fontsize = 16
+    fontname="Calibri"
     width=3.25
    ]
   
    subgraph cluster_paso1{  
-    fillcolor="#FFCE66BF" 
-    label = <<b>Paso 1<br/> Categorizar grupos de causas</b>>
+    fillcolor="#302244"
+    fontcolor=white
+    label = <<b>Paso 1:</b><br/> Categorizar grupos de causas>
   
     ent1[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
@@ -496,7 +434,7 @@ digraph G {
     <td> GC4</td>
     </tr>
     <tr>
-    <td port="nne"> NNE</td>
+    <td port="nne"> Neumonías inespecíficas (NNE)</td>
     </tr>
     </table>
     >]
@@ -508,17 +446,15 @@ digraph G {
 Adaptado de @teixeira2021 y @soaresfilho2024
 :::
 
-## 
-
-### Algoritmo de redistribución
+## Algoritmo de redistribución
 
 ```{dot}
-//| id: Paso 2
+//| id: Paso 2A
 digraph G {
-    rankdir=LR
+  rankdir=LR
    graph[
-    fontsize = 14
-    fontname="Times-Roman"
+    fontsize = 18
+    fontname="Calibri"
     style = filled
     nodesep=.5
     ranksep=.15
@@ -529,37 +465,37 @@ digraph G {
     shape = plain
     style = filled
     fillcolor="grey95"
-    fontsize = 14
-    fontname="Times-Roman"
+    fontsize = 16
+    fontname="Calibri"
     width=3.25
    ]
-   
-   subgraph cluster_paso2{    
-    fillcolor="#92463ABF"
-    label = <<b>Paso 2<br/>Recategorizar GC3-GC4</b>>
-    
   
-  ent2[label = <
+   subgraph cluster_paso1{  
+    fillcolor="#302244"
+    fontcolor=white
+    label = <<b>Paso 1:</b><br/> Categorizar grupos de causas>
+  
+    ent1[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
     <td width="250"><b>ENT objetivo</b></td>
     </tr>
     <tr>
     <td> NPL </td>
-    </tr>
+    </tr>    
     <tr>
     <td> ECV </td>
     </tr>
     <tr>
     <td> CRD </td>
-    </tr>
+    </tr>    
     <tr>
     <td> DM-CKD </td>
     </tr>
     </table>
     >]
   
-    ce2[label = <
+    ce1[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
     <td width="250"><b>CE objetivo</b></td>
@@ -569,34 +505,431 @@ digraph G {
     </tr>
     <tr>
     <td> SH </td>
-    </tr>
+    </tr>    
     <tr>
     <td> VI </td>
-    </tr>
+    </tr> 
     <tr>
     <td> CA </td>
-    </tr>
-       </table>
+    </tr> 
+    </table>
     >]
   
-    otras2[label = <
+    otras1[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
-    <td width="250"><b>Otras causas</b></td>
+    <td width="250"><b>Causas no objetivo</b></td>
     </tr>
     <tr>
-    <td port = "cmnn"> CMNN (INF, MAT-NEO, NUTR) </td>
+    <td> CMNN (INF, MAT-NEO, NUTR) </td>
     </tr>
     <tr>
-    <td> OTR-CE </td>
+    <td> Otras CE (OTR-CE) </td>
     </tr>
     <tr>
-    <td> OTR-ENT</td>
+    <td> Otras ENT (OTR-ENT) </td>
     </tr>
     </table>
     >]
   
-  gc2[label = <
+    gc1[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Códigos garbage</b></td>
+    </tr>
+    <tr>
+    <td> GC1 </td>
+    </tr>
+    <tr>
+    <td> GC2 </td>
+    </tr>
+    <tr>
+    <td port="gc3"> GC3-GC4</td>
+    </tr>
+    <tr>
+    <td> NNE </td>
+    </tr>
+    </table>
+    >]
+   }
+
+   subgraph cluster_paso2A{  
+    fillcolor= "#3D4B87"
+    fontcolor=white
+    label = <<b>Paso 2A:</b><br/> Recategorizar GC3-GC4>
+  
+    ent2a[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>ENT objetivo</b></td>
+    </tr>
+    <tr>
+    <td> NPL </td>
+    </tr>    
+    <tr>
+    <td> ECV </td>
+    </tr>
+    <tr>
+    <td> CRD </td>
+    </tr>    
+    <tr>
+    <td> DM-CKD </td>
+    </tr>
+    </table>
+    >]
+  
+    ce2a[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>CE objetivo</b></td>
+    </tr>
+    <tr>
+    <td> TRA </td>
+    </tr>
+    <tr>
+    <td> SH </td>
+    </tr>    
+    <tr>
+    <td> VI </td>
+    </tr> 
+    <tr>
+    <td> CA </td>
+    </tr> 
+    </table>
+    >]
+  
+    otras2a[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Causas no objetivo</b></td>
+    </tr>
+    <tr>
+    <td> CMNN (INF, MAT-NEO, NUTR) </td>
+    </tr>
+    <tr>
+    <td> Otras CE (OTR-CE) </td>
+    </tr>
+    <tr>
+    <td> Otras ENT (OTR-ENT) </td>
+    </tr>
+    </table>
+    >]
+  
+    gc2a[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Códigos garbage</b></td>
+    </tr>
+    <tr>
+    <td> GC1 </td>
+    </tr>
+    <tr>
+    <td> GC2 </td>
+    </tr>
+    <tr>
+    <td> NNE </td>
+    </tr>
+    </table>
+    >]
+   }
+
+ce1 -> gc1 [style="invis"]
+ce2a -> gc2a [style="invis"]
+gc1:gc3 -> {ent2a ce2a otras2a}
+
+   }
+```
+
+
+::: {style="font-size: .5em;"}
+Adaptado de @teixeira2021 y @soaresfilho2024
+:::
+
+## Algoritmo de redistribución
+
+```{dot}
+//| id: Paso 2B
+digraph G {
+  rankdir=LR
+   graph[
+    fontsize = 18
+    fontname="Calibri"
+    style = filled
+    nodesep=.5
+    ranksep=.15
+    compound=true
+   ]
+  
+   node[
+    shape = plain
+    style = filled
+    fillcolor="grey95"
+    fontsize = 16
+    fontname="Calibri"
+    width=3.25
+   ]
+  
+   subgraph cluster_paso2A{  
+    fillcolor= "#3D4B87"
+    fontcolor=white
+    label = <<b>Paso 2A:</b><br/> Recategorizar GC3-GC4>
+  
+    ent2a[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>ENT objetivo</b></td>
+    </tr>
+    <tr>
+    <td> NPL </td>
+    </tr>    
+    <tr>
+    <td> ECV </td>
+    </tr>
+    <tr>
+    <td> CRD </td>
+    </tr>    
+    <tr>
+    <td> DM-CKD </td>
+    </tr>
+    </table>
+    >]
+  
+    ce2a[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>CE objetivo</b></td>
+    </tr>
+    <tr>
+    <td> TRA </td>
+    </tr>
+    <tr>
+    <td> SH </td>
+    </tr>    
+    <tr>
+    <td> VI </td>
+    </tr> 
+    <tr>
+    <td> CA </td>
+    </tr> 
+    </table>
+    >]
+  
+    otras2a[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Causas no objetivo</b></td>
+    </tr>
+    <tr>
+    <td> CMNN (INF, MAT-NEO, NUTR) </td>
+    </tr>
+    <tr>
+    <td> Otras CE (OTR-CE) </td>
+    </tr>
+    <tr>
+    <td> Otras ENT (OTR-ENT) </td>
+    </tr>
+    </table>
+    >]
+  
+    gc2a[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Códigos garbage</b></td>
+    </tr>
+    <tr>
+    <td> GC1 </td>
+    </tr>
+    <tr>
+    <td> GC2 </td>
+    </tr>
+    <tr>
+    <td port="nne"> NNE </td>
+    </tr>
+    </table>
+    >]
+   }
+
+subgraph cluster_paso2B{  
+    fillcolor= "#3579A2"
+    fontcolor=white
+    label = <<b>Paso 2B:</b><br/> Redistribuir NNE*>
+  
+    ent2b[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>ENT objetivo</b></td>
+    </tr>
+    <tr>
+    <td> NPL </td>
+    </tr>    
+    <tr>
+    <td> ECV </td>
+    </tr>
+    <tr>
+    <td> CRD </td>
+    </tr>    
+    <tr>
+    <td> DM-CKD </td>
+    </tr>
+    </table>
+    >]
+  
+    ce2b[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>CE objetivo</b></td>
+    </tr>
+    <tr>
+    <td> TRA </td>
+    </tr>
+    <tr>
+    <td> SH </td>
+    </tr>    
+    <tr>
+    <td> VI </td>
+    </tr> 
+    <tr>
+    <td> CA </td>
+    </tr> 
+    </table>
+    >]
+  
+    otras2b[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Causas no objetivo</b></td>
+    </tr>
+    <tr>
+    <td port="cmnn"> CMNN (INF, MAT-NEO, NUTR) </td>
+    </tr>
+    <tr>
+    <td> Otras CE (OTR-CE) </td>
+    </tr>
+    <tr>
+    <td> Otras ENT (OTR-ENT) </td>
+    </tr>
+    </table>
+    >]
+  
+    gc2b[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Códigos garbage</b></td>
+    </tr>
+    <tr>
+    <td> GC1 </td>
+    </tr>
+    <tr>
+    <td> GC2 </td>
+    </tr>
+    </table>
+    >]
+   }
+
+   t1[label = "*Redistribución multinomial por edad y sexo según frecuencias Paso 2A"]
+
+ce2a -> gc2a [style="invis"]
+ce2b -> gc2b [style="invis"]
+
+gc2a:nne -> {ent2b otras2b:cmnn}
+
+otras2a -> t1 [style="invis"]
+
+   }
+```
+
+
+::: {style="font-size: .5em;"}
+Adaptado de @teixeira2021 y @soaresfilho2024
+:::
+
+## Algoritmo de redistribución
+
+```{dot}
+//| id: Paso 3
+digraph G {
+  rankdir=LR
+   graph[
+    fontsize = 18
+    fontname="Calibri"
+    style = filled
+    nodesep=.5
+    ranksep=.15
+    compound=true
+   ]
+  
+   node[
+    shape = plain
+    style = filled
+    fillcolor="grey95"
+    fontsize = 16
+    fontname="Calibri"
+    width=3.25
+   ]
+  
+  subgraph cluster_paso2B{  
+    fillcolor= "#3579A2"
+    fontcolor=white
+    label = <<b>Paso 2B:</b><br/> Redistribuir NNE*>
+  
+    ent2b[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>ENT objetivo</b></td>
+    </tr>
+    <tr>
+    <td> NPL </td>
+    </tr>    
+    <tr>
+    <td> ECV </td>
+    </tr>
+    <tr>
+    <td> CRD </td>
+    </tr>    
+    <tr>
+    <td> DM-CKD </td>
+    </tr>
+    </table>
+    >]
+  
+    ce2b[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>CE objetivo</b></td>
+    </tr>
+    <tr>
+    <td> TRA </td>
+    </tr>
+    <tr>
+    <td> SH </td>
+    </tr>    
+    <tr>
+    <td> VI </td>
+    </tr> 
+    <tr>
+    <td> CA </td>
+    </tr> 
+    </table>
+    >]
+  
+    otras2b[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Causas no objetivo</b></td>
+    </tr>
+    <tr>
+    <td port="cmnn"> CMNN (INF, MAT-NEO, NUTR) </td>
+    </tr>
+    <tr>
+    <td> Otras CE (OTR-CE) </td>
+    </tr>
+    <tr>
+    <td> Otras ENT (OTR-ENT) </td>
+    </tr>
+    </table>
+    >]
+  
+    gc2b[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
     <td width="250"><b>Códigos garbage</b></td>
@@ -609,50 +942,13 @@ digraph G {
     </tr>
     </table>
     >]
+   }
+
+subgraph cluster_paso3{  
+    fillcolor=  "#3BA9AA"
+    fontcolor=white
+    label = <<b>Paso 3:</b><br/> Redistribuir GC2*>
   
-   a[label=<Redistribuir 50% neumonías <br/> inespecíficas (NNE) por edad y sexo>]
-
-   b[label=<Redistribuir 50% neumonías <br/> inespecíficas (NNE) por edad y sexo a CMNN>]
-
-  
-  a -> ent2 
-   b -> otras2:cmnn
-   }}
-```
-
-::: {style="font-size: .5em;"}
-Adaptado de @teixeira2021 y @soaresfilho2024
-:::
-
-## 
-
-### Algoritmo de redistribución
-
-```{dot}
-//| id: Paso 3
-digraph G {
-    rankdir=LR
-   graph[
-    fontsize = 14
-    fontname="Times-Roman"
-    style = filled
-    nodesep=.5
-    ranksep=.15
-    compound=true
-   ]
-  
-   node[
-    shape = plain
-    style = filled
-    fillcolor="grey95"
-    fontsize = 14
-    fontname="Times-Roman"
-    width=3.25
-   ]
-    subgraph cluster_paso3{
-    fillcolor="#4D5492BF"
-    label = <<b>Paso 3:<br/> Redistribuir GC2*</b>>
-
     ent3[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
@@ -660,13 +956,13 @@ digraph G {
     </tr>
     <tr>
     <td> NPL </td>
-    </tr>
+    </tr>    
     <tr>
-    <td> ECV + GC2-ECV</td>
+    <td> ECV + GC2-ECV </td>
     </tr>
     <tr>
     <td> CRD </td>
-    </tr>
+    </tr>    
     <tr>
     <td> DM-CKD </td>
     </tr>
@@ -676,71 +972,78 @@ digraph G {
     ce3[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
-    <td width="250"><b>CE objetivo + GC2-CE*</b></td>
+    <td width="250"><b>CE objetivo </b></td>
     </tr>
     <tr>
-    <td> TRA </td>
+    <td> TRA + GC2-CE </td>
     </tr>
     <tr>
-    <td> SH </td>
-    </tr>
+    <td> SH + GC2-CE </td>
+    </tr>    
     <tr>
-    <td> VI </td>
-    </tr>
+    <td> VI + GC2-CE </td>
+    </tr> 
     <tr>
-    <td> CA </td>
-    </tr>
+    <td> CA + GC2-CE </td>
+    </tr> 
     </table>
     >]
   
     otras3[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
-    <td width="250"><b>Otras causas</b></td>
+    <td width="250"><b>Causas no objetivo</b></td>
     </tr>
     <tr>
-    <td> CMNN (INF, MAT-NEO, NUTR) </td>
+    <td port="cmnn"> CMNN (INF, MAT-NEO, NUTR) </td>
     </tr>
     <tr>
-    <td> OTR-CE + GC2-CE*</td>
+    <td> Otras CE (OTR-CE) + GC2-CE </td>
     </tr>
     <tr>
-    <td> OTR-ENT</td>
+    <td> Otras ENT (OTR-ENT) </td>
     </tr>
     </table>
     >]
   
-  gc3[label = <
+    gc3[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
     <td width="250"><b>Códigos garbage</b></td>
     </tr>
     <tr>
-    <td port="gc1"> GC1 </td>
+    <td> GC1 </td>
     </tr>
     </table>
     >]
-    }
-    
-    ent3 -> otras3 [style="invis"]
-    ce3 -> gc3 [style="invis"]}
+   }
+
+   t1[label = "*Redistribución multinomial por edad y sexo según frecuencias Paso 2A
+   Códigos X59 e Y34 distribuidos según frecuencias Projeto 60 Cidades"]
+
+ce2b -> gc2b [style="invis"]
+ce3 -> gc3 [style="invis"]
+gc2b:gc2 -> {ent3 ce3 otras3}
+otras2b -> t1 [style="invis"]
+
+   }
 ```
+
 
 ::: {style="font-size: .5em;"}
 Adaptado de @teixeira2021 y @soaresfilho2024
 :::
 
-## 
 
-### Algoritmo de redistribución
+## Algoritmo de redistribución
 
 ```{dot}
 //| id: Paso 4
 digraph G {
-    rankdir=LR
+  rankdir=LR
    graph[
-    fontsize = 14
-    fontname="Times-Roman"
+    fontsize = 18
+    fontname="Calibri"
     style = filled
     nodesep=.5
     ranksep=.15
@@ -751,28 +1054,104 @@ digraph G {
     shape = plain
     style = filled
     fillcolor="grey95"
-    fontsize = 14
-    fontname="Times-Roman"
+    fontsize = 16
+    fontname="Calibri"
     width=3.25
    ]
-   subgraph cluster_paso4{    
-    fillcolor= "#80E6FFBF"
-    label = <<b>Paso 4:<br/> Redistribuir GC1*</b>>
-    
-  ent4[label = <
+  
+  subgraph cluster_paso3{  
+    fillcolor=  "#3BA9AA"
+    fontcolor=white
+    label = <<b>Paso 3:</b><br/> Redistribuir GC2*>
+  
+    ent3[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
     <td width="250"><b>ENT objetivo</b></td>
     </tr>
     <tr>
     <td> NPL </td>
+    </tr>    
+    <tr>
+    <td> ECV + GC2-ECV </td>
     </tr>
     <tr>
-    <td> ECV</td>
+    <td> CRD </td>
+    </tr>    
+    <tr>
+    <td> DM-CKD </td>
+    </tr>
+    </table>
+    >]
+  
+    ce3[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>CE objetivo </b></td>
     </tr>
     <tr>
-    <td> CRD + GC1-CRD</td>
+    <td> TRA + GC2-CE </td>
     </tr>
+    <tr>
+    <td> SH + GC2-CE </td>
+    </tr>    
+    <tr>
+    <td> VI + GC2-CE </td>
+    </tr> 
+    <tr>
+    <td> CA + GC2-CE </td>
+    </tr> 
+    </table>
+    >]
+  
+    otras3[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Causas no objetivo</b></td>
+    </tr>
+    <tr>
+    <td port="cmnn"> CMNN (INF, MAT-NEO, NUTR) </td>
+    </tr>
+    <tr>
+    <td> Otras CE (OTR-CE) + GC2-CE </td>
+    </tr>
+    <tr>
+    <td> Otras ENT (OTR-ENT) </td>
+    </tr>
+    </table>
+    >]
+  
+    gc3[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>Códigos garbage</b></td>
+    </tr>
+    <tr>
+    <td> GC1 </td>
+    </tr>
+    </table>
+    >]
+   }
+
+   subgraph cluster_paso4{  
+    fillcolor=  "#7FD4B1"
+    fontcolor=white
+    label = <<b>Paso 4:</b><br/> Redistribuir GC1*>
+  
+    ent4[label = <
+    <table border="0" cellborder = "1" cellspacing  ="0">
+    <tr>
+    <td width="250"><b>ENT objetivo</b></td>
+    </tr>
+    <tr>
+    <td> NPL </td>
+    </tr>    
+    <tr>
+    <td> ECV </td>
+    </tr>
+    <tr>
+    <td> CRD + GC1-CRD </td>
+    </tr>    
     <tr>
     <td> DM-CKD </td>
     </tr>
@@ -782,122 +1161,106 @@ digraph G {
     ce4[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
-    <td width="250"><b>CE objetivo + GC1-CE*</b></td>
+    <td width="250"><b>CE objetivo </b></td>
     </tr>
     <tr>
-    <td> TRA </td>
+    <td> TRA + GC1-CE </td>
     </tr>
     <tr>
-    <td> SH </td>
-    </tr>
+    <td> SH + GC1-CE </td>
+    </tr>    
     <tr>
-    <td> VI </td>
-    </tr>
+    <td> VI + GC1-CE </td>
+    </tr> 
     <tr>
-    <td> CA </td>
-    </tr>
+    <td> CA + GC1-CE </td>
+    </tr> 
     </table>
     >]
   
     otras4[label = <
     <table border="0" cellborder = "1" cellspacing  ="0">
     <tr>
-    <td width="250"><b>Otras causas</b></td>
+    <td width="250"><b>Causas no objetivo</b></td>
     </tr>
     <tr>
-    <td port = "cmnn"> CMNN (INF, MAT-NEO, NUTR) </td>
+    <td port="cmnn"> CMNN (INF, MAT-NEO, NUTR) </td>
     </tr>
     <tr>
-    <td> OTR-CE + GC1-CE*</td>
+    <td> Otras CE (OTR-CE) + GC1-CE </td>
     </tr>
     <tr>
-    <td> OTR-ENT</td>
+    <td> Otras ENT (OTR-ENT) </td>
     </tr>
     </table>
     >]
-  
    }
-   
-   ent4 -> otras4 [style="invis"]}
+
+   t1[label = "*Redistribución multinomial por edad y sexo según frecuencias Paso 2A"]
+
+ce3 -> gc3 [style="invis"]
+otras3 -> t1 [style="invis"]
+gc3 -> {ent4 ce4 otras4}
+
+   }
 ```
+
 
 ::: {style="font-size: .5em;"}
 Adaptado de @teixeira2021 y @soaresfilho2024
 :::
 
-## 
+## Análisis estadístico
 
-### Análisis estadístico
+- Comparación frecuencias absolutas y relativas (%) de los grupos de causas definidas antes, durante y después del proceso de redistribución.
 
-- Cambio absoluto y relativo (%) de las frecuencias de causas definidas luego de la redistribución de GC.
-- Tasas específicas de mortalidad por GC según región, año y nivel.
-- Estandarización directa utilizando población estándar Argentina 2022.
+- Ajuste de tasas de mortalidad por GC según nivel de especificidad, región y jurisdicción.
 
-## 
+- Estandarización por método directo usando la población estándar del Censo 2022.
 
-- Tendencias temporales mediante regresión joinpoint:
+## Análisis estadístico
+
+- Análisis de tendencias temporales por regresión joinpoint:
+
   - Variable dependiente: logaritmo de la tasa estandarizada
+
   - Variable independiente: año de defunción
-  - Estratificación por región y nivel GC
+
+  - Variables de estratificación: nivel de GC y región
+
   - Máximo dos puntos de cambio (joinpoints)
-  - Selección del modelo mediante BIC.
+
+  - Selección del modelo por método grid-search mediante BIC.
 
 ## Resultados
 
 ```{r}
 #| id: Defunciones por edad y sexo
 #| tbl-cap: "**Defunciones por edad y sexo, Argentina (2010-2023)**"
-datos_gc |>
-  # --- Individualizar filas ---
+# ---- Datos ----
+tab <- datos_gc |>
   uncount(weights = n) |>
+  tabyl(grupo_edad, sexo)
 
-  # --- Tabla 2x2 ---
-  tbl_cross(
-    row = grupo_edad,
-    col = sexo,
-    percent = "row",
-    digits = c(0, 1),
-    label = list(sexo = "Sexo", grupo_edad = "Grupo edad")
+p <- if (chisq.test(tab)$p.value != 0) chisq.test(tab)$p.value else "<0.001"
+
+# ---- Tabla 2x2 ----
+tab |>
+  # --- Formato tabla ---
+  adorn_percentages("row") |>
+  adorn_pct_formatting(digits = 1) |>
+  adorn_ns(position = "front") |>
+
+  bind_cols(
+    "P-valor" = p
   ) |>
 
-  # --- Añadir significancia ---
-  add_p() |>
-
-  # --- Layout ---
-  bold_labels() |>
-  modify_indent(columns = label, indent = 0L) |>
-  remove_footnote_header()
+  # --- layout ---
+  tab_format() |>
+  merge_v(j = "P-valor", combine = TRUE)
 ```
 
-## 
-
-```{r}
-#| id: Defunciones por edad y causa nivel 1
-#| tbl-cap: "**Defunciones por edad y grupo de causas nivel 1, Argentina (2010-2023)**"
-datos_gc |>
-  # --- Individualizar filas ---
-  uncount(weights = n) |>
-
-  # --- Tabla 2x2 ---
-  tbl_cross(
-    row = grupo_edad,
-    col = gbd_paso1_grupo,
-    percent = "row",
-    digits = c(0, 1),
-    label = list(gbd_paso1_grupo = "Grupo causa", grupo_edad = "Grupo edad")
-  ) |>
-
-  # --- Añadir significancia ---
-  add_p() |>
-
-  # --- Layout ---
-  bold_labels() |>
-  modify_indent(columns = label, indent = 0L) |>
-  remove_footnote_header() |>
-  as_flex_table()
-```
-
-## 
+## Resultados
 
 ```{r}
 #| id: Defunciones por edad y causa nivel 2
@@ -916,7 +1279,7 @@ datos_gc |>
   # --- Escalas ---
   scale_y_continuous(name = NULL, labels = percent) +
   scale_x_discrete(name = NULL) +
-  scale_cbpal_fill(palette = "managua", name = NULL) +
+  scale_cbpal_fill(palette = "mako", name = NULL) +
 
   # --- Layout ---
   guides(fill = guide_legend(nrow = 2)) +
@@ -928,12 +1291,12 @@ datos_gc |>
   )
 ```
 
-## 
+## Resultados
 
 ```{r}
 #| id: GC1-GC2 más frecuentes
 #| tbl-cap: "**Principales códigos garbage de nivel 1 y 2 (GC1-GC2) registrados como causa básica de defunción en Argentina (2010-2023).**"
-datos_gc |>
+tab <- datos_gc |>
   # --- Filtrar GC1-GC2 ---
   filter(gbd_paso1 %in% c("GC:GC1", "GC:GC2")) |>
 
@@ -962,11 +1325,12 @@ datos_gc |>
   # --- Ordenar columnas ---
   select(cie10_cod, causa = VALOR, everything()) |>
 
-  # --- Seleccionar 5 primeros ---
-  head() |>
+  # --- Seleccionar 10 primeros ---
+  head(n = 10)
 
-  # --- Convertir a tabla ---
-  flextable() |>
+#  ---- Tabla ----
+tab |>
+  tab_format() |>
 
   # --- Encabezados ---
   set_header_labels(
@@ -977,7 +1341,7 @@ datos_gc |>
   )
 ```
 
-## 
+## Resultados
 
 ```{r}
 #| id: Frecuencias iniciales
@@ -1006,7 +1370,6 @@ datos_gc |>
         )
       )
     ),
-    place = "topright",
     reflow = TRUE,
     color = "white"
   ) +
@@ -1015,21 +1378,14 @@ datos_gc |>
   geom_treemap_subgroup_border() +
 
   # Layout
-  scale_fill_manual(
-    values = c(
-      CMNN = "#D28C50",
-      CE = "#7B3539",
-      ENT = "#4C4077",
-      GC = "#68A3D4"
-    ),
-    name = NULL
-  ) +
+  scale_cbpal(name = NULL, palette = "mako") +
 
   # --- Layout ---
   theme(legend.position = "bottom")
 ```
 
-## 
+## Resultados
+
 ```{r}
 #| id: Frecuencias paso 2A
 #| fig-cap: "**Frecuencias por grupo de causas luego de reasignar GC3-GC4, Argentina (2010-2023)**"
@@ -1057,7 +1413,6 @@ datos_gc |>
         )
       )
     ),
-    place = "topright",
     reflow = TRUE,
     color = "white"
   ) +
@@ -1066,21 +1421,13 @@ datos_gc |>
   geom_treemap_subgroup_border() +
 
   # Layout
-  scale_fill_manual(
-    values = c(
-      CMNN = "#D28C50",
-      CE = "#7B3539",
-      ENT = "#4C4077",
-      GC = "#68A3D4"
-    ),
-    name = NULL
-  ) +
+  scale_cbpal(name = NULL, palette = "mako") +
 
   # --- Layout ---
   theme(legend.position = "bottom")
 ```
 
-## 
+## Resultados
 ```{r}
 #| id: Frecuencias paso 2B
 #| fig-cap: "**Frecuencias por grupo de causas luego de redistribuir NNE, Argentina (2010-2023)**"
@@ -1108,7 +1455,6 @@ datos_gc |>
         )
       )
     ),
-    place = "topright",
     reflow = TRUE,
     color = "white"
   ) +
@@ -1117,21 +1463,14 @@ datos_gc |>
   geom_treemap_subgroup_border() +
 
   # Layout
-  scale_fill_manual(
-    values = c(
-      CMNN = "#D28C50",
-      CE = "#7B3539",
-      ENT = "#4C4077",
-      GC = "#68A3D4"
-    ),
-    name = NULL
-  ) +
+  scale_cbpal(name = NULL, palette = "mako") +
 
   # --- Layout ---
   theme(legend.position = "bottom")
 ```
 
-## 
+## Resultados
+
 ```{r}
 #| id: Frecuencias paso 3
 #| fig-cap: "**Frecuencias por grupo de causas luego de redistribuir GC2, Argentina (2010-2023)**"
@@ -1168,21 +1507,14 @@ datos_gc |>
   geom_treemap_subgroup_border() +
 
   # Layout
-  scale_fill_manual(
-    values = c(
-      CMNN = "#D28C50",
-      CE = "#7B3539",
-      ENT = "#4C4077",
-      GC = "#68A3D4"
-    ),
-    name = NULL
-  ) +
+  scale_cbpal(name = NULL, palette = "mako") +
 
   # --- Layout ---
   theme(legend.position = "bottom")
 ```
 
-## 
+## Resultados
+
 ```{r}
 #| id: Frecuencias paso 4
 #| fig-cap: "**Frecuencias por grupo de causas luego de redistribuir GC1, Argentina (2010-2023)**"
@@ -1221,10 +1553,9 @@ datos_gc |>
   # Layout
   scale_fill_manual(
     values = c(
-      CMNN = "#D28C50",
-      CE = "#7B3539",
-      ENT = "#4C4077",
-      GC = "#68A3D4"
+      CMNN = "#395C97",
+      CE = "#342851",
+      ENT = "#3697A8"
     ),
     name = NULL
   ) +
@@ -1233,7 +1564,7 @@ datos_gc |>
   theme(legend.position = "bottom")
 ```
 
-## 
+## Resultados
 
 ```{r}
 #| id: Cambio frecuencias
@@ -1316,7 +1647,7 @@ datos_gc |>
     labels = label_percent()
   ) +
   scale_x_discrete(name = "Causa") +
-  scale_cbpal_fill(palette = "managua", name = NULL) +
+  scale_cbpal_fill(palette = "mako", name = NULL) +
 
   # --- Layout ---
   coord_flip() +
@@ -1327,11 +1658,12 @@ datos_gc |>
   )
 ```
 
-## 
+## Resultados
 
 ```{r}
 #| id: Distribución tasas GC
 #| fig-cap: "**Distribución regional de las tasas de mortalidad por códigos *garbage* (GC) estandarizadas por edad. Argentina, 2010–2023.**"
+#| fig-cap-location: top
 bind_rows(tasa_gc_arg, tasa_gc_reg) |>
   # --- Gráfico ---
   ggplot(aes(x = value, y = nivel, fill = nivel)) +
@@ -1349,7 +1681,7 @@ bind_rows(tasa_gc_arg, tasa_gc_reg) |>
   ) +
 
   # --- Escalas ---
-  scale_cbpal_fill(palette = "managua", name = NULL) +
+  scale_cbpal_fill(palette = "mako", name = NULL) +
 
   # --- Layout ---
   labs(
@@ -1364,145 +1696,39 @@ bind_rows(tasa_gc_arg, tasa_gc_reg) |>
   )
 ```
 
-## 
-
-```{r}
-#| id: Coeficientes joinpoint Argentina
-#| tbl-cap: "**Coeficientes regresión joinpoint por nivel de GC, Argentina (2010-2023)**"
-get_summary(mods = mod_ar, as.ft = TRUE) |>
-  set_header_labels(
-    model = "modelo",
-    period = "período"
-  )
-```
-
-## 
+## Resultados
 
 ```{r}
 #| id: Gráfico joinpoint Argentina
 #| fig-cap: "**Evolución temporal de las tasas de mortalidad por códigos *garbage* (GC) estandarizadas por edad. Argentina, 2010–2023**"
+#| fig-cap-location: top
 gg_jpoint(
-  mods = mod_ar,
-  color.by = "period",
-  aapc = TRUE
+  models = mod_ar,
+  color.by = "trend",
+  aapc = TRUE,
+  lwd = 1.5,
+  size = 3.5,
+  alpha = .6
 ) +
-  scale_cbpal_color(palette = "managua", name = "Período") +
+  scale_cbpal_color(palette = "mako", name = "Tendencia") +
   scale_y_log10(name = "log(tasa)")
 ```
 
-## 
+## Resultados
 
 ```{r}
 #| id: Gráfico joinpoint regiones
 #| fig-cap: "**Evolución temporal de las tasas de mortalidad por códigos *garbage* (GC) estandarizadas por edad según regiones. Argentina, 2010–2023**"
 gg_jpoint(
-  mods = mod_reg,
+  models = mod_reg,
+  color.by = "trend",
+  aapc = TRUE,
   facets = "grid2",
-  color.by = "period",
-  aapc = TRUE
+  lwd = 1.5,
+  size = 3.5,
+  alpha = .6
 ) +
-  scale_cbpal_color(palette = "managua", name = "Período") +
-  scale_y_log10(name = "log(tasa)")
-```
-
-## 
-
-```{r}
-#| id: Gráfico joinpoint región Centro
-#| fig-cap: "**Evolución temporal de las tasas de mortalidad por códigos *garbage* (GC) estandarizadas por edad en la Región Centro. Argentina, 2010–2023**"
-# ---- Datos para el gráfico ----
-mod_centro <- mod_jur[grepl("Centro", names(mod_jur))]
-
-names(mod_centro) <- str_remove_all(names(mod_centro), "Centro:")
-
-# ---- Gráfico
-gg_jpoint(
-  mods = mod_centro,
-  facets = "grid2",
-  color.by = "period",
-  aapc = TRUE
-) +
-  scale_cbpal_color(palette = "managua", name = "Período") +
-  scale_y_log10(name = "log(tasa)")
-```
-
-## 
-```{r}
-#| id: Gráfico joinpoint región NEA
-#| fig-cap: "**Evolución temporal de las tasas de mortalidad por códigos *garbage* (GC) estandarizadas por edad en la Región NEA. Argentina, 2010–2023**"
-# ---- Datos para el gráfico ----
-mod_nea <- mod_jur[grepl("NEA", names(mod_jur))]
-
-names(mod_nea) <- str_remove_all(names(mod_nea), "NEA:")
-
-# ---- Gráfico
-gg_jpoint(
-  mods = mod_nea,
-  facets = "grid2",
-  color.by = "period",
-  aapc = TRUE
-) +
-  scale_cbpal_color(palette = "managua", name = "Período") +
-  scale_y_log10(name = "log(tasa)")
-```
-
-## 
-```{r}
-#| id: Gráfico joinpoint región NOA
-#| fig-cap: "**Evolución temporal de las tasas de mortalidad por códigos *garbage* (GC) estandarizadas por edad en la Región NOA. Argentina, 2010–2023**"
-# ---- Datos para el gráfico ----
-mod_noa <- mod_jur[grepl("NOA", names(mod_jur))]
-
-names(mod_noa) <- str_remove_all(names(mod_noa), "NOA:")
-
-# ---- Gráfico
-gg_jpoint(
-  mods = mod_noa,
-  facets = "grid2",
-  color.by = "period",
-  aapc = TRUE
-) +
-  scale_cbpal_color(palette = "managua", name = "Período") +
-  scale_y_log10(name = "log(tasa)")
-```
-
-## 
-```{r}
-#| id: Gráfico joinpoint región Cuyo
-#| fig-cap: "**Evolución temporal de las tasas de mortalidad por códigos *garbage* (GC) estandarizadas por edad en la Región Cuyo. Argentina, 2010–2023**"
-# ---- Datos para el gráfico ----
-mod_cuyo <- mod_jur[grepl("Cuyo", names(mod_jur))]
-
-names(mod_cuyo) <- str_remove_all(names(mod_cuyo), "Cuyo:")
-
-# ---- Gráfico
-gg_jpoint(
-  mods = mod_cuyo,
-  facets = "grid2",
-  color.by = "period",
-  aapc = TRUE
-) +
-  scale_cbpal_color(palette = "managua", name = "Período") +
-  scale_y_log10(name = "log(tasa)")
-```
-
-## 
-```{r}
-#| id: Gráfico joinpoint región Patagonia
-#| fig-cap: "**Evolución temporal de las tasas de mortalidad por códigos *garbage* (GC) estandarizadas por edad en la Región Patagonia. Argentina, 2010–2023**"
-# ---- Datos para el gráfico ----
-mod_pat <- mod_jur[grepl("Patagonia", names(mod_jur))]
-
-names(mod_pat) <- str_remove_all(names(mod_pat), "Patagonia:")
-
-# ---- Gráfico
-gg_jpoint(
-  mods = mod_pat,
-  facets = "grid2",
-  color.by = "period",
-  aapc = TRUE
-) +
-  scale_cbpal_color(palette = "managua", name = "Período") +
+  scale_cbpal_color(palette = "mako", name = "Tendencia") +
   scale_y_log10(name = "log(tasa)")
 ```
 
@@ -1511,20 +1737,37 @@ gg_jpoint(
 
 - Diferencias significativas en la proporción de muertes por GC según grupo etario.
 
-- Diferencias regionales en la tendencia de las tasas de mortalidad por GC.
+- Alrededor de un tercio de las defunciones del período de estudio correspondieron a GC altamente inespecíficos (GC1-GC2).
 
-- Cambios importantes en la frecuencia de muertes por ENT luego de la redistribución.
+- Sin embargo, el país mostró una tendencia descendente en la mortalidad por GC de nivel 1 al 3 durante el período de estudio, con heterogeneidades regionales.
 
+## Discusión {title=""}
 
-## 
+- El peso de las ENT en el total de muertes pasó de 38,2% a 81,7% luego de redistribuir los GC.
 
-![](images/Muchas Gracias!!!.png){fig-align="center"}
+- Limitaciones:
 
+  - No se cuenta con un equivalente al Projeto 60 Cidades para las frecuencias de muertes por CE.
+
+  - Los códigos pueden cambiar de categoría según versión del GBD utilizada.
+
+## Muchas gracias!!!
+
+::::: columns
+::: {.column width="60%"}
+💬 **Preguntas o comentarios**
+
+📧 *tamararicardo83\@gmail.com*
+
+🏛️ Instituto Nacional de Epidemiología "Dr. Juan H. Jara", Mar del Plata, Argentina
+:::
+
+::: {.column width="40%"}
+![](images/dt-1.webp){fig-align="center"}
+:::
+:::::
 
 ## Referencias
 
 ::: references
 :::
-
-
-
